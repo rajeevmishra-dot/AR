@@ -2,144 +2,105 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Truck 3D viewer</title>
-<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@3.5.0/dist/model-viewer.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Truck in AR</title>
+
+<!-- Libraries (all loaded from the jsDelivr CDN; see README notes to host them yourself) -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js" crossorigin="anonymous"></script>
+<script async src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js" crossorigin="anonymous" data-preload-chunks="slam"></script>
+
 <style>
   :root {
-    --bg-top: #e9edf0;
-    --bg-bottom: #c9d1d6;
     --ink: #1c2429;
     --accent: #1f5f8b;
     --accent-ink: #ffffff;
-    --bar: rgba(255,255,255,.9);
+    --bar: rgba(255,255,255,.92);
   }
   @media (prefers-color-scheme: dark) {
-    :root {
-      --bg-top: #2a3238;
-      --bg-bottom: #151a1e;
-      --ink: #eef2f4;
-      --accent: #6cb4e4;
-      --accent-ink: #0f1a22;
-      --bar: rgba(30,37,42,.92);
-    }
+    :root { --ink: #eef2f4; --accent: #6cb4e4; --accent-ink: #0f1a22; --bar: rgba(30,37,42,.94); }
   }
-  html, body { height: 100%; margin: 0; }
-  body {
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #111; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); }
+
+  #camerafeed { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+
+  /* Start screen */
+  #start {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center;
+    background: linear-gradient(#e9edf0, #c9d1d6);
+    --ink: #1c2429;
     color: var(--ink);
-    background: linear-gradient(var(--bg-top), var(--bg-bottom));
   }
-  model-viewer {
-    width: 100%;
-    height: 100%;
-    --poster-color: transparent;
-    --progress-bar-color: var(--accent);
-  }
+  #start[hidden] { display: none; }
+  #start h1 { margin: 0; font-size: 26px; }
+  #start p { margin: 0; max-width: 320px; font-size: 15px; line-height: 1.5; }
 
-  /* model-viewer's overlay container ignores taps, so everything tappable opts back in */
-  .controls, .panel, button { pointer-events: auto; }
-
-  .controls {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
-    display: flex;
-    gap: 6px;
-    padding: 6px;
-    border-radius: 999px;
-    background: var(--bar);
-    box-shadow: 0 6px 24px rgba(0,0,0,.18);
-    max-width: calc(100% - 24px);
-  }
   button {
-    font: inherit;
-    font-size: 14px;
-    font-weight: 600;
-    border: 0;
-    border-radius: 999px;
-    padding: 10px 14px;
-    min-height: 44px;
-    cursor: pointer;
-    color: var(--ink);
-    background: transparent;
-    white-space: nowrap;
+    font: inherit; font-size: 14px; font-weight: 600; border: 0; border-radius: 999px;
+    padding: 10px 14px; min-height: 44px; cursor: pointer; white-space: nowrap;
+    color: var(--ink); background: transparent;
   }
-  button.primary,
-  button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+  button.primary, button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+  button:disabled { opacity: .55; cursor: default; }
   button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   button[hidden] { display: none; }
+  #start-btn { font-size: 17px; padding: 14px 28px; background: #1f5f8b; color: #fff; }
 
-  /* Pop-up info panel */
+  /* On-screen UI over the camera */
+  #ui { position: fixed; inset: 0; pointer-events: none; }
+  #ui[hidden] { display: none; }
+  #ui .controls, #ui .panel, #ui button { pointer-events: auto; }
+
+  .controls {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+    display: flex; gap: 6px; padding: 6px; border-radius: 999px;
+    background: var(--bar); box-shadow: 0 6px 24px rgba(0,0,0,.25);
+    max-width: calc(100% - 24px);
+  }
   .panel {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
+    position: absolute; left: 50%; transform: translateX(-50%);
     bottom: calc(env(safe-area-inset-bottom, 0px) + 86px);
-    width: min(420px, calc(100% - 32px));
-    box-sizing: border-box;
-    padding: 16px 18px 18px;
-    border-radius: 16px;
-    background: var(--bar);
-    box-shadow: 0 8px 30px rgba(0,0,0,.22);
+    width: min(420px, calc(100% - 32px)); box-sizing: border-box;
+    padding: 16px 18px 18px; border-radius: 16px;
+    background: var(--bar); box-shadow: 0 8px 30px rgba(0,0,0,.3);
   }
   .panel[hidden] { display: none; }
   .panel h2 { margin: 0 36px 8px 0; font-size: 18px; }
   .panel p { margin: 0; font-size: 15px; line-height: 1.5; }
-  .panel .close {
-    position: absolute; top: 6px; right: 6px;
-    width: 44px; padding: 0; font-size: 22px; line-height: 1;
-  }
+  .panel .close { position: absolute; top: 6px; right: 6px; width: 44px; padding: 0; font-size: 22px; line-height: 1; }
 
-  .ar-note {
-    position: absolute;
-    top: calc(env(safe-area-inset-top, 0px) + 16px);
-    left: 16px; right: 72px;
-    padding: 10px 14px;
-    border-radius: 12px;
-    background: var(--bar);
-    font-size: 14px;
-    display: none;
-  }
-  model-viewer[ar-status="session-started"] .ar-note { display: block; }
-
-  .hint {
-    position: absolute;
-    top: calc(env(safe-area-inset-top, 0px) + 16px);
-    left: 0; right: 0;
-    text-align: center;
-    font-size: 14px;
-    opacity: .7;
+  .note {
+    position: absolute; top: calc(env(safe-area-inset-top, 0px) + 16px); left: 16px; right: 16px;
+    padding: 10px 14px; border-radius: 12px; background: var(--bar); font-size: 14px;
     pointer-events: none;
   }
+  .note[hidden] { display: none; }
+  #error { background: #b3261e; color: #fff; pointer-events: auto; }
 </style>
 </head>
 <body>
 
-<model-viewer id="mv"
-  src="model.glb"
-  alt="3D model of a truck"
-  camera-controls
-  touch-action="pan-y"
-  shadow-intensity="1"
-  shadow-softness="0.8"
-  exposure="1"
-  environment-image="neutral"
-  ar
-  ar-modes="webxr scene-viewer quick-look"
-  ar-scale="auto"
-  interaction-prompt="auto">
+<canvas id="camerafeed"></canvas>
 
-  <!-- Empty slot hides model-viewer's default AR button; we use our own below -->
-  <button slot="ar-button" hidden></button>
+<section id="start">
+  <h1>Truck in AR</h1>
+  <p id="start-msg">Loading model…</p>
+  <button id="start-btn" type="button" disabled>Start AR</button>
+  <p>Allow camera and motion access when asked, then point your phone at the floor and move it slowly.</p>
+</section>
 
-  <div class="ar-note">Move your phone slowly to find the floor, then tap to place the truck.</div>
+<div id="ui" hidden>
+  <div class="note" id="tips">Drag the truck to move it. Twist two fingers to rotate. Pinch to resize.</div>
+  <div class="note" id="error" hidden></div>
 
   <!-- Pop-up panel. Edit the title and text below. -->
   <section class="panel" id="panel" hidden aria-label="About this model">
     <h2>About this model</h2>
-    <p>Replace this text with your own description, specs or credits. This panel also shows while you are in AR.</p>
+    <p>Replace this text with your own description, specs or credits.</p>
     <button class="close" id="panel-close" type="button" aria-label="Close">&times;</button>
   </section>
 
@@ -147,64 +108,83 @@
     <button id="play" type="button" hidden>Play</button>
     <button id="info" type="button" aria-pressed="false">Info</button>
     <button id="music" type="button" aria-pressed="false">Music</button>
-    <button id="ar" type="button" class="primary" hidden>View in AR</button>
+    <button id="recenter" type="button">Re-place</button>
   </div>
-</model-viewer>
-
-<p class="hint" id="status">Loading model…</p>
+</div>
 
 <script>
-  const mv = document.getElementById('mv');
-  const playBtn = document.getElementById('play');
-  const infoBtn = document.getElementById('info');
-  const musicBtn = document.getElementById('music');
-  const arBtn = document.getElementById('ar');
-  const panel = document.getElementById('panel');
-  const status = document.getElementById('status');
+(() => {
+  /* ---------- Settings you may want to change ---------- */
+  const CONFIG = {
+    model: 'model.glb',
+    music: 'music.mp3',
+    scale: 0.4,          // 1 = the model's own size; smaller = smaller truck
+    distance: 3,         // how far in front of you it starts (scene units)
+    cameraHeight: 2,     // start height of the camera above the floor (scene units)
+    tipsSeconds: 9,      // how long the gesture tips stay on screen
+  };
 
-  // Add ?webxr to the address to allow only in-browser AR (no Scene Viewer fallback).
-  if (new URLSearchParams(location.search).has('webxr')) mv.setAttribute('ar-modes', 'webxr');
+  const $ = (id) => document.getElementById(id);
+  const startScreen = $('start'), startBtn = $('start-btn'), startMsg = $('start-msg');
+  const ui = $('ui'), tips = $('tips'), errorBox = $('error');
+  const playBtn = $('play'), infoBtn = $('info'), musicBtn = $('music'), recenterBtn = $('recenter');
+  const panel = $('panel'), canvas = $('camerafeed');
 
-  function say(text) { status.textContent = text; status.style.opacity = 1; }
+  /* ---------- Errors (shown on screen so they are easy to report) ---------- */
+  function showError(err) {
+    console.error(err);
+    const msg = (err && err.message) ? err.message : String(err);
+    startMsg.textContent = msg;
+    errorBox.textContent = msg;
+    errorBox.hidden = false;
+  }
+  window.addEventListener('error', (e) => showError(e.error || e.message));
+  window.addEventListener('unhandledrejection', (e) => showError(e.reason));
 
-  // If the viewer library never registered, the CDN script was blocked or offline
-  setTimeout(() => {
-    if (!customElements.get('model-viewer')) {
-      say('Viewer library failed to load. Check your internet connection.');
-    }
-  }, 5000);
+  /* ---------- Model ---------- */
+  const pivot = new THREE.Group();      // everything the user moves/rotates/scales lives here
+  let model = null, mixer = null, clip = null, action = null;
+  const clock = new THREE.Clock();
 
-  mv.addEventListener('progress', (e) => {
-    const p = e.detail.totalProgress;
-    if (p < 1) say('Loading model… ' + Math.round(p * 100) + '%');
+  function resetPlacement() {
+    pivot.position.set(0, 0, -CONFIG.distance);
+    pivot.rotation.set(0, 0, 0);
+    pivot.scale.setScalar(CONFIG.scale);
+  }
+
+  const modelReady = new Promise((resolve, reject) => {
+    new THREE.GLTFLoader().load(CONFIG.model, (gltf) => {
+      model = gltf.scene;
+      model.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+      // Stand the model on the floor, centred on its footprint
+      const box = new THREE.Box3().setFromObject(model);
+      const c = box.getCenter(new THREE.Vector3());
+      model.position.set(-c.x, -box.min.y, -c.z);
+      pivot.add(model);
+      resetPlacement();
+      if (gltf.animations && gltf.animations.length) {
+        mixer = new THREE.AnimationMixer(model);
+        clip = gltf.animations[0];
+        playBtn.hidden = false;
+      }
+      resolve();
+    }, undefined, () => reject(new Error('Could not load ' + CONFIG.model + '. Make sure it sits next to index.html.')));
   });
 
-  mv.addEventListener('load', () => {
-    say('Drag to rotate. Pinch to zoom.');
-    status.style.opacity = .7;
-    if (mv.availableAnimations && mv.availableAnimations.length) {
-      mv.animationName = mv.availableAnimations[0];
-      mv.pause();
-      mv.currentTime = 0;
-      playBtn.hidden = false;
-    }
-    if (mv.canActivateAR) arBtn.hidden = false;
-  });
+  modelReady
+    .then(() => { startMsg.textContent = 'Model ready.'; startBtn.disabled = false; })
+    .catch(showError);
 
-  mv.addEventListener('error', (e) => {
-    const d = e.detail && (e.detail.sourceError || e.detail.type);
-    say('Could not load model.glb' + (d ? ' (' + (d.message || d) + ')' : '') +
-        '. Make sure it sits next to index.html.');
-  });
-
-  /* ---------- Animation ---------- */
+  /* ---------- Animation button ---------- */
   playBtn.addEventListener('click', () => {
-    if (mv.paused) {
-      mv.play({ repetitions: Infinity });
+    if (!mixer) return;
+    if (!action) {
+      action = mixer.clipAction(clip);
+      action.play();
       playBtn.textContent = 'Pause';
     } else {
-      mv.pause();
-      playBtn.textContent = 'Play';
+      action.paused = !action.paused;
+      playBtn.textContent = action.paused ? 'Play' : 'Pause';
     }
   });
 
@@ -214,14 +194,12 @@
     infoBtn.setAttribute('aria-pressed', String(open));
   }
   infoBtn.addEventListener('click', () => setPanel(panel.hidden));
-  document.getElementById('panel-close').addEventListener('click', () => setPanel(false));
+  $('panel-close').addEventListener('click', () => setPanel(false));
 
   /* ---------- Music ---------- */
-  const music = new Audio('music.mp3');
+  const music = new Audio(CONFIG.music);
   music.loop = true;
   music.volume = 0.6;
-  let startedByAR = false;
-
   function setMusic(on) {
     if (on) {
       music.play().then(() => musicBtn.setAttribute('aria-pressed', 'true'))
@@ -231,27 +209,160 @@
       musicBtn.setAttribute('aria-pressed', 'false');
     }
   }
-  musicBtn.addEventListener('click', () => {
-    startedByAR = false;
-    setMusic(music.paused);
+  musicBtn.addEventListener('click', () => setMusic(music.paused));
+
+  /* ---------- AR scene ---------- */
+  const raycaster = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  let ground = null, sun = null, arCamera = null;
+
+  function groundPoint(touch) {
+    if (!ground || !arCamera) return null;
+    ndc.set((touch.clientX / window.innerWidth) * 2 - 1,
+            -(touch.clientY / window.innerHeight) * 2 + 1);
+    raycaster.setFromCamera(ndc, arCamera);
+    const hits = raycaster.intersectObject(ground);
+    return hits.length ? hits[0].point.clone() : null;
+  }
+
+  function setupGestures() {
+    let mode = null;
+    const grab = new THREE.Vector3();
+    let startDist = 0, startScale = 1, startAngle = 0, startRot = 0;
+
+    const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    const angle = (a, b) => Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX);
+
+    canvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (e.touches.length === 1) {
+        const p = groundPoint(e.touches[0]);
+        if (p) { mode = 'drag'; grab.copy(pivot.position).sub(p); } else { mode = null; }
+      } else if (e.touches.length === 2) {
+        mode = 'pinch';
+        const [a, b] = e.touches;
+        startDist = dist(a, b); startScale = pivot.scale.x;
+        startAngle = angle(a, b); startRot = pivot.rotation.y;
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (mode === 'drag' && e.touches.length === 1) {
+        const p = groundPoint(e.touches[0]);
+        if (p) { pivot.position.set(p.x + grab.x, 0, p.z + grab.z); }
+      } else if (mode === 'pinch' && e.touches.length === 2) {
+        const [a, b] = e.touches;
+        const s = startScale * (dist(a, b) / startDist);
+        pivot.scale.setScalar(Math.min(Math.max(s, 0.02), 4));
+        pivot.rotation.y = startRot + (startAngle - angle(a, b));
+      }
+    }, { passive: false });
+
+    const end = (e) => { e.preventDefault(); mode = null; };
+    canvas.addEventListener('touchend', end, { passive: false });
+    canvas.addEventListener('touchcancel', end, { passive: false });
+  }
+
+  const scenePipelineModule = () => ({
+    name: 'truck-scene',
+
+    onStart: () => {
+      const { scene, camera, renderer } = XR8.Threejs.xrScene();
+      arCamera = camera;
+
+      renderer.outputEncoding = THREE.sRGBEncoding;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+      scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+      sun = new THREE.DirectionalLight(0xffffff, 1.0);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(1024, 1024);
+      const sc = sun.shadow.camera;
+      sc.near = 0.1; sc.far = 40; sc.left = -5; sc.right = 5; sc.top = 5; sc.bottom = -5;
+      scene.add(sun, sun.target);
+
+      // Invisible floor that only shows the truck's shadow and catches touches
+      ground = new THREE.Mesh(new THREE.PlaneGeometry(250, 250), new THREE.ShadowMaterial({ opacity: 0.35 }));
+      ground.rotation.x = -Math.PI / 2;
+      ground.receiveShadow = true;
+      scene.add(ground);
+
+      scene.add(pivot);
+      resetPlacement();
+
+      camera.position.set(0, CONFIG.cameraHeight, 0);
+      XR8.XrController.updateCameraProjectionMatrix({
+        origin: camera.position,
+        facing: camera.quaternion,
+      });
+
+      setupGestures();
+    },
+
+    onUpdate: () => {
+      const dt = clock.getDelta();
+      if (mixer) mixer.update(dt);
+      if (sun) {
+        sun.position.set(pivot.position.x + 2, 6, pivot.position.z + 3);
+        sun.target.position.copy(pivot.position);
+      }
+    },
+
+    onCanvasSizeChange: () => {
+      if (!arCamera) return;
+      arCamera.aspect = window.innerWidth / window.innerHeight;
+      arCamera.updateProjectionMatrix();
+    },
+
+    onException: (err) => showError(err),
   });
 
-  /* ---------- AR ---------- */
-  arBtn.addEventListener('click', () => mv.activateAR());
+  // Re-place: reset the tracking origin to where the phone is now, and put the truck back in front
+  recenterBtn.addEventListener('click', () => {
+    try { XR8.XrController.recenter(); } catch (e) { console.warn(e); }
+    resetPlacement();
+  });
 
-  // In-browser (WebXR) AR: hide the launch button, start music, and stop it again on exit
-  mv.addEventListener('ar-status', (e) => {
-    const s = e.detail.status;
-    arBtn.style.display = s === 'session-started' || s === 'object-placed' ? 'none' : '';
-    if (s === 'session-started' && music.paused) {
-      startedByAR = true;
-      setMusic(true);
-    }
-    if (s === 'not-presenting' && startedByAR) {
-      startedByAR = false;
-      setMusic(false);
+  /* ---------- Start ---------- */
+  const whenReady = (name, eventName) => new Promise((resolve, reject) => {
+    if (window[name]) return resolve();
+    const t = setTimeout(() => reject(new Error('Could not load the AR engine (' + name + '). Check your connection and reload.')), 15000);
+    window.addEventListener(eventName, () => { clearTimeout(t); resolve(); }, { once: true });
+  });
+
+  startBtn.addEventListener('click', async () => {
+    startBtn.disabled = true;
+    startMsg.textContent = 'Starting…';
+    setMusic(true);                       // starts inside the tap so the browser allows sound
+
+    try {
+      await modelReady;
+      await whenReady('XR8', 'xrloaded');
+      await whenReady('XRExtras', 'xrextrasloaded');
+
+      XR8.addCameraPipelineModules([
+        XR8.GlTextureRenderer.pipelineModule(),   // draws the camera feed
+        XR8.Threejs.pipelineModule(),             // three.js scene
+        XR8.XrController.pipelineModule(),        // world tracking
+        XRExtras.FullWindowCanvas.pipelineModule(),
+        XRExtras.Loading.pipelineModule(),        // permission prompts and loading screen
+        XRExtras.RuntimeError.pipelineModule(),
+        scenePipelineModule(),
+      ]);
+
+      startScreen.hidden = true;
+      ui.hidden = false;
+      setTimeout(() => { tips.hidden = true; }, CONFIG.tipsSeconds * 1000);
+
+      XR8.run({ canvas, allowedDevices: XR8.XrConfig.device().ANY });
+    } catch (err) {
+      showError(err);
+      startBtn.disabled = false;
     }
   });
+})();
 </script>
 </body>
 </html>
